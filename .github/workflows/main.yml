@@ -30,23 +30,31 @@ jobs:
 
     - name: Enable VNC
       run: |
-        # Активация VNC
+        # Активация удаленного управления с паролем runnerrdp
         sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -allowAccessFor -allUsers -privs -all -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw runnerrdp -restart -agent -console
-        # Предотвращение сна
+        # Предотвращение сна системы
         sudo caffeinate -d &
 
     - name: Setup Web Proxy (noVNC)
       run: |
+        # Установка прокси (с флагом --break-system-packages для CI)
         python3 -m pip install websockify --break-system-packages
+        
+        # Клонирование noVNC
         git clone https://github.com/novnc/noVNC.git /tmp/noVNC
-        python3 -m websockify 6080 localhost:5900 > /dev/null 2>&1 &
+        
+        # ЗАПУСК С ФЛАГОМ --web (это исправляет ошибку 405)
+        python3 -m websockify --web /tmp/noVNC 6080 localhost:5900 > /dev/null 2>&1 &
+        
         echo "Proxy started on port 6080"
 
     - name: Connection Details
       run: |
         echo "=================================================="
-        echo "IP для подключения: http://$(tailscale ip -4):6080/vnc.html"
-        echo "Password: runnerrdp"
+        echo "1. Убедитесь, что Tailscale запущен на вашем ПК."
+        echo "2. Откройте в браузере: http://$(tailscale ip -4):6080/vnc.html"
+        echo "3. Нажмите 'Connect'."
+        echo "4. Пароль: runnerrdp"
         echo "=================================================="
 
     - name: Stay Alive
