@@ -18,9 +18,9 @@ jobs:
         sudo createhomedir -c -u runneradmin > /dev/null
         sudo dscl . -append /Groups/admin GroupMembership runneradmin
 
-    - name: Install Tailscale
+    - name: Install and Start Tailscale
       env:
-        TS_AUTHKEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
+        TS_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
       run: |
         brew install tailscale
         sudo tailscaled --tun=userspace-networking --socks5-server=localhost:1055 &
@@ -30,28 +30,23 @@ jobs:
 
     - name: Enable VNC
       run: |
-        # Активация ARD (VNC)
+        # Активация VNC
         sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -allowAccessFor -allUsers -privs -all -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw runnerrdp -restart -agent -console
-        
-        # Защита от сна (критично для отсутствия черного экрана)
+        # Предотвращение сна
         sudo caffeinate -d &
 
     - name: Setup Web Proxy (noVNC)
       run: |
-        # Устанавливаем через pip3 вместо brew
-        pip3 install websockify
+        python3 -m pip install websockify --break-system-packages
         git clone https://github.com/novnc/noVNC.git /tmp/noVNC
-        # Запускаем через python3 напрямую
-        python3 -m websockify 6080 localhost:5900 &
+        python3 -m websockify 6080 localhost:5900 > /dev/null 2>&1 &
         echo "Proxy started on port 6080"
 
     - name: Connection Details
       run: |
         echo "=================================================="
-        echo "ИНСТРУКЦИЯ ДЛЯ БРАУЗЕРА:"
-        echo "1. Убедитесь, что Tailscale запущен на вашем локальном ПК."
-        echo "2. Откройте: http://$(tailscale ip -4):6080/vnc.html"
-        echo "3. В поле 'Password' введите: runnerrdp"
+        echo "IP для подключения: http://$(tailscale ip -4):6080/vnc.html"
+        echo "Password: runnerrdp"
         echo "=================================================="
 
     - name: Stay Alive
