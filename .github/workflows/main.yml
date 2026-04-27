@@ -1,4 +1,4 @@
-name: MacRDP Multi-Method
+name: MacRDP Ultimate
 on: 
   workflow_dispatch:
 
@@ -6,10 +6,9 @@ jobs:
   build:
     runs-on: macos-latest
     steps:
-    - name: Setup Environment
+    - name: Setup User
       run: |
         cd /tmp
-        # Создание пользователя
         sudo dscl . -create /Users/runneradmin
         sudo dscl . -create /Users/runneradmin UserShell /bin/bash
         sudo dscl . -create /Users/runneradmin RealName Runner_Admin
@@ -20,55 +19,53 @@ jobs:
         sudo createhomedir -c -u runneradmin > /dev/null
         sudo dscl . -append /Groups/admin GroupMembership runneradmin
 
-    - name: Tailscale Setup
-      uses: tailscale/github-action@v2
-      with:
-        authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
-
-    - name: Enable VNC with Multi-Method Fallback
+    - name: Install and Start Tailscale (Manual via Brew)
+      env:
+        TS_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
       run: |
-        cd /tmp
+        # 1. Установка Tailscale
+        brew install tailscale
         
-        # --- Метод 1: Стандартная активация ---
-        echo "::group::Attempt 1: Standard Kickstart"
-        sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -allowAccessFor -allUsers -privs -all || echo "Method 1 failed"
-        echo "::endgroup::"
+        # 2. Запуск демона Tailscale в режиме userspace (надежнее для CI)
+        sudo tailscaled --tun=userspace-networking --socks5-server=localhost:1055 &
+        
+        # 3. Подключение (authkey все еще рабочий стандарт для CI)
+        sudo tailscale up --authkey=$TS_AUTHKEY
+        
+        # Ждем пару секунд для инициализации
+        sleep 5
+        echo "Tailscale IP: $(tailscale ip -4)"
 
-        # --- Метод 2: Настройка пароля и VNC Legacy (Критично для работы) ---
-        echo "::group::Attempt 2: Configure Password & Legacy"
-        sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -clientopts -setvnclegacy -vnclegacy yes
-        # Установка пароля через perl-скрипт (самый надежный способ)
+    - name: Enable VNC
+      run: |
+        # Активация VNC
+        sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -allowAccessFor -allUsers -privs -all -clientopts -setvnclegacy -vnclegacy yes -restart -agent -console
+        
+        # Установка пароля
         echo runnerrdp | perl -we 'BEGIN { @k = unpack "C*", pack "H*", "1734516E8BA8C5E2FF1C39567390ADCA"}; $_ = <>; chomp; s/^(.{8}).*/$1/; @p = unpack "C*", $_; foreach (@k) { printf "%02X", $_ ^ (shift @p || 0) }; print "\n"' | sudo tee /Library/Preferences/com.apple.VNCSettings.txt
-        sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent -console
-        echo "::endgroup::"
-
-        # --- Метод 3: Форсированный запуск (если Агент не отзывается) ---
-        echo "::group::Attempt 3: Force Activate & Wakeup"
-        # Проверяем, запущен ли процесс
-        if ! pgrep -x "ARDAgent" > /dev/null; then
-           echo "ARDAgent is NOT running. Forcing..."
-           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -privs -all -restart -agent -console
-        fi
-        # Caffeinate заставляет систему думать, что пользователь активен (обход "черного экрана")
-        sudo caffeinate -d & 
-        echo "::endgroup::"
+        
+        # Дополнительная активация
+        sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -privs -all -restart -agent -console
+        
+        # "Будильник" для экрана
+        sudo caffeinate -d &
 
     - name: Setup Web Proxy (noVNC)
       run: |
         cd /tmp
         brew install websockify
         git clone https://github.com/novnc/noVNC.git
-        # Запуск прокси
         ./noVNC/utils/websockify/run 6080 localhost:5900 > /dev/null 2>&1 &
+        echo "Proxy started on port 6080"
 
     - name: Connection Details
       run: |
         echo "=================================================="
-        echo "Tailscale IP: $(tailscale ip -4)"
-        echo "Link (Open in browser): http://$(tailscale ip -4):6080/vnc.html"
-        echo "VNC Password: runnerrdp"
-        echo "User: runneradmin"
+        echo "ИНСТРУКЦИЯ:"
+        echo "1. Убедитесь, что Tailscale запущен на вашем ПК."
+        echo "2. Откройте в браузере: http://$(tailscale ip -4):6080/vnc.html"
+        echo "3. Password: runnerrdp"
         echo "=================================================="
-          
+
     - name: Stay Alive
       uses: mxschmitt/action-tmate@v2
