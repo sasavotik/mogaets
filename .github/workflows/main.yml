@@ -1,29 +1,50 @@
 name: Xcode Remote Lab
-on: workflow_dispatch
+on: workflow_dispatch # Запуск вручную кнопкой в Actions
 
 jobs:
   xcode-session:
     runs-on: macos-latest
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Install Tailscale
         run: |
           brew install tailscale
-          sudo tailscaled --tun=userspace-networking &
+          # Запуск демона в фоновом режиме
+          sudo /opt/homebrew/opt/tailscale/bin/tailscaled --tun=userspace-networking &
           sleep 5
-          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=xcode-mac
 
-      - name: Enable Desktop Access
+      - name: Connect to Tailscale Network
         run: |
-          # Пароль для входа (обязательно!)
-          sudo dscl . -passwd /Users/runner "password123"
-          # Включаем удаленный стол
+          # Используем секрет, который ты добавил в настройки репозитория
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=xcode-mac --accept-routes
+
+      - name: Set Password and Enable VNC
+        run: |
+          # Устанавливаем пароль 'password123' для пользователя runner
+          # Пробуем через chpasswd (самый надежный способ в консоли)
+          echo "runner:password123" | sudo chpasswd
+          
+          # Разрешаем удаленное управление (VNC)
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-          -activate -configure -access -on -restart -agent -privs -all
+          -activate -configure -access -on -restart -agent -privs -all \
+          -allowAccessFor -specifiedUsers
+          
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+          -configure -users runner -access -on -privs -all
 
-      - name: Xcode Info
+      - name: Get IP and Info
         run: |
+          echo "===================================================="
+          echo "Mac готов к подключению!"
+          echo "IP адрес в Tailscale:"
+          tailscale ip -4
+          echo "Логин: runner"
+          echo "Пароль: password123"
+          echo "===================================================="
           xcodebuild -version
-          echo "IP в Tailscale: $(tailscale ip -4)"
 
       - name: Keep Alive (6 Hours)
+        # Машина будет работать 6 часов, потом GitHub её выключит
         run: sleep 21600
