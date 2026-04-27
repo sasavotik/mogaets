@@ -16,28 +16,21 @@ jobs:
 
       - name: Connect to Tailscale Network
         run: |
-          # Используй свой секрет TAILSCALE_AUTH_KEY как раньше
           sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=xcode-mac --accept-routes
 
-      - name: Setup SSH Key and VNC
+      - name: Setup SSH Key Only
         run: |
-          # Создаем директорию и записываем твой ключ напрямую
           mkdir -p ~/.ssh
           echo "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCsDttzpgSoo9DZUm3mop7s23/9auEbYOD3+LjZRAghMX+j33D4BdUU8SYb2RPjmDP0RdYRqvboxM2KYa29qmN9bUD5znPVJ1pFuU7qDJKgnvGmYMkO+5ikcVI8sJnEXMyQ7IRaNunmu7+QSQC++MzCFJaAvufu5yAtAIGPDq91J/h3zsldheJ9hH9Wfq9XJCsoJov1PlgZnvx4a/of7TvdwypIryA7zjZGBmBbTfIMDiKkctvIIDTCNrvLfZU9Fmr4E6ZNBoF8+7wJrGFYsIbG0Fi3JAdm92MbFlJo3hTn3T/ZnhGDEw+jXw6yoJWT9gyC0er88nK3X4qTCrhugvRvfBTmO2ACFHYBVtMMnxVXzfeZ+1UNlU8NgWfEkGKgD+4/r9cQA5Eje6XovVx1Q8vYldlikk/clChpnkOxilZJ0KVf1+MUEGR1Bvq43KdWSm3JTodHCwnsetwxHlc9HbCxoXPWhXiDnV/6x1tkPjtTfzXE8B0lqq81vROFtrj1WtE= user@WIN-N3H3EVF474E" > ~/.ssh/authorized_keys
           chmod 600 ~/.ssh/authorized_keys
           
-          # Пробуем форсированно задать пароль для VNC через dscl (от root это должно сработать)
-          sudo dscl . -passwd /Users/runner password123
-
-          # Включаем удаленный рабочий стол
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-          -activate -configure -access -on -restart -agent -privs -all
+          # Включаем VNC (без смены пароля, чтобы не упало)
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -restart -agent -privs -all
 
       - name: Final Info
         run: |
           echo "===================================================="
           echo "IP: $(tailscale ip -4)"
-          echo "Заходи: ssh runner@$(tailscale ip -4)"
-          echo "Для VNC (если пустит): пароль password123"
+          echo "Команда для входа: ssh runner@$(tailscale ip -4)"
           echo "===================================================="
           sleep 21600
