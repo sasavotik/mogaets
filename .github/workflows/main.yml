@@ -1,0 +1,29 @@
+name: Xcode Remote Lab
+on: workflow_dispatch
+
+jobs:
+  xcode-session:
+    runs-on: macos-latest
+    steps:
+      - name: Install Tailscale
+        run: |
+          brew install tailscale
+          sudo tailscaled --tun=userspace-networking &
+          sleep 5
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=xcode-mac
+
+      - name: Enable Desktop Access
+        run: |
+          # Пароль для входа (обязательно!)
+          sudo dscl . -passwd /Users/runner "password123"
+          # Включаем удаленный стол
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+          -activate -configure -access -on -restart -agent -privs -all
+
+      - name: Xcode Info
+        run: |
+          xcodebuild -version
+          echo "IP в Tailscale: $(tailscale ip -4)"
+
+      - name: Keep Alive (6 Hours)
+        run: sleep 21600
