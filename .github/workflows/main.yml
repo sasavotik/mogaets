@@ -1,5 +1,5 @@
 name: Xcode Remote Lab
-on: workflow_dispatch # Запуск вручную кнопкой в Actions
+on: workflow_dispatch
 
 jobs:
   xcode-session:
@@ -11,22 +11,20 @@ jobs:
       - name: Install Tailscale
         run: |
           brew install tailscale
-          # Запуск демона в фоновом режиме
           sudo /opt/homebrew/opt/tailscale/bin/tailscaled --tun=userspace-networking &
           sleep 5
 
       - name: Connect to Tailscale Network
         run: |
-          # Используем секрет, который ты добавил в настройки репозитория
           sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=xcode-mac --accept-routes
 
-      - name: Set Password and Enable VNC
+      - name: Force Set Password and Enable VNC
         run: |
-          # Устанавливаем пароль 'password123' для пользователя runner
-          # Пробуем через chpasswd (самый надежный способ в консоли)
-          echo "runner:password123" | sudo chpasswd
-          
-          # Разрешаем удаленное управление (VNC)
+          # В GitHub Actions sudo passwd работает без подтверждения старого пароля
+          echo "password123" | sudo passwd runner
+          echo "password123" | sudo passwd runner # Повтор для уверенности
+
+          # Включаем удаленный рабочий стол (VNC)
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
           -activate -configure -access -on -restart -agent -privs -all \
           -allowAccessFor -specifiedUsers
@@ -34,17 +32,10 @@ jobs:
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
           -configure -users runner -access -on -privs -all
 
-      - name: Get IP and Info
+      - name: Get IP and Wait
         run: |
-          echo "===================================================="
-          echo "Mac готов к подключению!"
-          echo "IP адрес в Tailscale:"
-          tailscale ip -4
+          echo "IP для подключения в VNC: $(tailscale ip -4)"
           echo "Логин: runner"
           echo "Пароль: password123"
-          echo "===================================================="
           xcodebuild -version
-
-      - name: Keep Alive (6 Hours)
-        # Машина будет работать 6 часов, потом GitHub её выключит
-        run: sleep 21600
+          sleep 21600
