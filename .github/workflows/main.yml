@@ -8,7 +8,6 @@ jobs:
     steps:
     - name: Setup User
       run: |
-        cd /tmp
         sudo dscl . -create /Users/runneradmin
         sudo dscl . -create /Users/runneradmin UserShell /bin/bash
         sudo dscl . -create /Users/runneradmin RealName Runner_Admin
@@ -19,52 +18,40 @@ jobs:
         sudo createhomedir -c -u runneradmin > /dev/null
         sudo dscl . -append /Groups/admin GroupMembership runneradmin
 
-    - name: Install and Start Tailscale (Manual via Brew)
+    - name: Install Tailscale
       env:
-        TS_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+        TS_AUTHKEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
       run: |
-        # 1. Установка Tailscale
         brew install tailscale
-        
-        # 2. Запуск демона Tailscale в режиме userspace (надежнее для CI)
         sudo tailscaled --tun=userspace-networking --socks5-server=localhost:1055 &
-        
-        # 3. Подключение (authkey все еще рабочий стандарт для CI)
-        sudo tailscale up --authkey=$TS_AUTHKEY
-        
-        # Ждем пару секунд для инициализации
         sleep 5
+        sudo tailscale up --authkey=$TS_AUTHKEY
         echo "Tailscale IP: $(tailscale ip -4)"
 
     - name: Enable VNC
       run: |
-        # Активация VNC
-        sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -allowAccessFor -allUsers -privs -all -clientopts -setvnclegacy -vnclegacy yes -restart -agent -console
+        # Активация ARD (VNC)
+        sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -allowAccessFor -allUsers -privs -all -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw runnerrdp -restart -agent -console
         
-        # Установка пароля
-        echo runnerrdp | perl -we 'BEGIN { @k = unpack "C*", pack "H*", "1734516E8BA8C5E2FF1C39567390ADCA"}; $_ = <>; chomp; s/^(.{8}).*/$1/; @p = unpack "C*", $_; foreach (@k) { printf "%02X", $_ ^ (shift @p || 0) }; print "\n"' | sudo tee /Library/Preferences/com.apple.VNCSettings.txt
-        
-        # Дополнительная активация
-        sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -privs -all -restart -agent -console
-        
-        # "Будильник" для экрана
+        # Защита от сна (критично для отсутствия черного экрана)
         sudo caffeinate -d &
 
     - name: Setup Web Proxy (noVNC)
       run: |
-        cd /tmp
-        brew install websockify
-        git clone https://github.com/novnc/noVNC.git
-        ./noVNC/utils/websockify/run 6080 localhost:5900 > /dev/null 2>&1 &
+        # Устанавливаем через pip3 вместо brew
+        pip3 install websockify
+        git clone https://github.com/novnc/noVNC.git /tmp/noVNC
+        # Запускаем через python3 напрямую
+        python3 -m websockify 6080 localhost:5900 &
         echo "Proxy started on port 6080"
 
     - name: Connection Details
       run: |
         echo "=================================================="
-        echo "ИНСТРУКЦИЯ:"
-        echo "1. Убедитесь, что Tailscale запущен на вашем ПК."
-        echo "2. Откройте в браузере: http://$(tailscale ip -4):6080/vnc.html"
-        echo "3. Password: runnerrdp"
+        echo "ИНСТРУКЦИЯ ДЛЯ БРАУЗЕРА:"
+        echo "1. Убедитесь, что Tailscale запущен на вашем локальном ПК."
+        echo "2. Откройте: http://$(tailscale ip -4):6080/vnc.html"
+        echo "3. В поле 'Password' введите: runnerrdp"
         echo "=================================================="
 
     - name: Stay Alive
