@@ -1,4 +1,4 @@
-name: Xcode Remote Lab (Strict SSH)
+name: Xcode Remote Lab (Ultimate Setup)
 on: workflow_dispatch
 
 jobs:
@@ -16,26 +16,45 @@ jobs:
 
       - name: Connect to Tailscale Network
         run: |
+          # Используй свой секрет TAILSCALE_AUTH_KEY
           sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=xcode-mac --accept-routes
 
-      - name: Force Enable SSH Keys
+      - name: Setup SSH Access (Passwordless)
         run: |
-          # Создаем директорию и файл ключей
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          
-          # Записываем ключ максимально аккуратно
-          printf "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCsDttzpgSoo9DZUm3mop7s23/9auEbYOD3+LjZRAghMX+j33D4BdUU8SYb2RPjmDP0RdYRqvboxM2KYa29qmN9bUD5znPVJ1pFuU7qDJKgnvGmYMkO+5ikcVI8sJnEXMyQ7IRaNunmu7+QSQC++MzCFJaAvufu5yAtAIGPDq91J/h3zsldheJ9hH9Wfq9XJCsoJov1PlgZnvx4a/of7TvdwypIryA7zjZGBmBbTfIMDiKkctvIIDTCNrvLfZU9Fmr4E6ZNBoF8+7wJrGFYsIbG0Fi3JAdm92MbFlJo3hTn3T/ZnhGDEw+jXw6yoJWT9gyC0er88nK3X4qTCrhugvRvfBTmO2ACFHYBVtMMnxVXzfeZ+1UNlU8NgWfEkGKgD+4/r9cQA5Eje6XovVx1Q8vYldlikk/clChpnkOxilZJ0KVf1+MUEGR1Bvq43KdWSm3JTodHCwnsetwxHlc9HbCxoXPWhXiDnV/6x1tkPjtTfzXE8B0lqq81vROFtrj1WtE= user@WIN-N3H3EVF474E" > ~/.ssh/authorized_keys
-          
+          echo "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCsDttzpgSoo9DZUm3mop7s23/9auEbYOD3+LjZRAghMX+j33D4BdUU8SYb2RPjmDP0RdYRqvboxM2KYa29qmN9bUD5znPVJ1pFuU7qDJKgnvGmYMkO+5ikcVI8sJnEXMyQ7IRaNunmu7+QSQC++MzCFJaAvufu5yAtAIGPDq91J/h3zsldheJ9hH9Wfq9XJCsoJov1PlgZnvx4a/of7TvdwypIryA7zjZGBmBbTfIMDiKkctvIIDTCNrvLfZU9Fmr4E6ZNBoF8+7wJrGFYsIbG0Fi3JAdm92MbFlJo3hTn3T/ZnhGDEw+jXw6yoJWT9gyC0er88nK3X4qTCrhugvRvfBTmO2ACFHYBVtMMnxVXzfeZ+1UNlU8NgWfEkGKgD+4/r9cQA5Eje6XovVx1Q8vYldlikk/clChpnkOxilZJ0KVf1+MUEGR1Bvq43KdWSm3JTodHCwnsetwxHlc9HbCxoXPWhXiDnV/6x1tkPjtTfzXE8B0lqq81vROFtrj1WtE= user@WIN-N3H3EVF474E" > ~/.ssh/authorized_keys
           chmod 600 ~/.ssh/authorized_keys
+
+      - name: Create Admin User and Configure VNC
+        run: |
+          # 1. Создаем пользователя 'apple' с паролем 'password123'
+          sudo sysadminctl -addUser apple -fullName "Apple" -password "password123" -admin || true
           
-          # Пингуем SSH конфиг, чтобы он точно разрешал ключи
-          sudo sed -i '' 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config
-          sudo launchctl unload /System/Library/LaunchDaemons/ssh.plist
-          sudo launchctl load -w /System/Library/LaunchDaemons/ssh.plist
+          # 2. Устанавливаем VNC пароль 'password123' для совместимости (TightVNC)
+          sudo perl -we 'print "\x3a\xa4\xca\x05\x0f\x39\x3e\x4a"' > /tmp/vncpw
+          sudo cp /tmp/vncpw /Library/Preferences/com.apple.VNCPassword
+          sudo chmod 600 /Library/Preferences/com.apple.VNCPassword
+
+          # 3. Включаем Screen Sharing и разрешаем доступ всем
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+          -activate -configure -access -on -restart -agent -privs -all -allowAccessFor -allUsers
+          
+          # 4. Включаем поддержку старых VNC-клиентов
+          sudo defaults write /Library/Preferences/com.apple.RemoteManagement VNCAlwaysStartPassworded -bool true
+
+      - name: Fix Black Screen (Virtual Display)
+        run: |
+          # Настраиваем разрешение, чтобы графическая оболочка "проснулась"
+          sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionEnabled -bool true
+          sudo launchctl kickstart -kp system/com.apple.screensharing
 
       - name: Final Info
         run: |
+          echo "===================================================="
           echo "IP: $(tailscale ip -4)"
-          echo "Пробуй: ssh -o PasswordAuthentication=no runner@$(tailscale ip -4)"
+          echo "1. SSH (без пароля): ssh runner@$(tailscale ip -4)"
+          echo "2. VNC Пароль: password123"
+          echo "3. Внутри Мака логин: apple / пароль: password123"
+          echo "===================================================="
           sleep 21600
