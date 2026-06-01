@@ -59,42 +59,24 @@ jobs:
 
       - name: Install Tailscale
         run: |
-          # Включаем современные протоколы шифрования TLS для стабильной загрузки
-          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+          Write-Host "Установка Tailscale версии 1.98.4 через диспетчер пакетов winget..."
           
-          # Ваша ссылка на официальный исполняемый файл
-          $tsUrl = "https://tailscale.com"
-          $installerPath = "$env:TEMP\tailscale-setup.exe"
+          # Установка конкретной версии напрямую из репозитория Microsoft/Tailscale с полным логированием
+          winget install --id Tailscale.Tailscale --version 1.98.4 --exact --silent --accept-source-agreements --accept-package-agreements
           
-          Write-Host "Скачивание файла по ссылке..."
-          # Используем метод .DownloadFile, который гарантированно забирает бинарник
-          (New-Object System.Net.WebClient).DownloadFile($tsUrl, $installerPath)
-          
-          # ПРОВЕРКА: Проверяем размер файла на диске. Если скачался HTML-код вместо программы, шаг упадет здесь.
-          $fileSize = (Get-Item $installerPath).Length
-          Write-Host "Размер файла на диске: $fileSize байт."
-          if ($fileSize -lt 5MB) {
-              Write-Error "Критическая ошибка: Скачанный файл слишком мал (меньше 5 МБ). Возможно, ссылка отдала веб-страницу."
-              exit 1
-          }
-          
-          Write-Host "Запуск тихой установки..."
-          # Ключи для правильной тихой установки Inno Setup (упаковщик Tailscale .exe)
-          Start-Process $installerPath -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
-          
+          # Явная задержка для завершения регистрации служб Windows
           Start-Sleep -Seconds 5
-          Remove-Item $installerPath -Force
 
       - name: Establish Tailscale Connection
         run: |
+          # Контролируем, куда установилась утилита
           $exePath = "$env:ProgramFiles\Tailscale\tailscale.exe"
-          
-          # ПРОВЕРКА НАЛИЧИЯ: Контролируем, завершилась ли распаковка успехом
           if (-not (Test-Path $exePath)) {
-              Write-Error "Критическая ошибка: Файл tailscale.exe не появился по пути $exePath. Установка не удалась."
+              Write-Error "Критическая ошибка: Файл не найден по пути $exePath. Установка завершилась неудачей."
               exit 1
           }
           
+          Write-Host "Файл обнаружен. Инициализация подключения..."
           # Bring up Tailscale with the provided auth key and set a unique hostname
           & $exePath up --authkey=${{ secrets.TS_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
           
@@ -135,6 +117,6 @@ jobs:
           
           # Keep runner active indefinitely (or until manually cancelled)
           while ($true) {
-              Write-Host "[$(Get-Date)] RDP Active - Use Cancel workflow in GitHub to terminate"
+              Write-Host "[$(Get-Date)] RDP Active - Use Ctrl+C in workflow to terminate"
               Start-Sleep -Seconds 300
           }
