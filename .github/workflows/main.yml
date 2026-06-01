@@ -11,52 +11,68 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 2. Включаем службу Windows Remote Desktop (RDP) и задаем пароль
+      # 2. Включаем службу Windows Remote Desktop (RDP) и задаем пароль администратора
       - name: Enable RDP and Set Password
         shell: powershell
         run: |
-          # Включаем RDP в реестре и брандмауэре Windows
+          # Активируем RDP в реестре системы
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
           
-          # Устанавливаем пароль для встроенного пользователя runneradmin
-          # Смените 'YourSecurePassword123!' на свой пароль, если хотите
+          # Открываем порты в брандмауэре Windows Defender
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          
+          # Задаем надежный статический пароль для встроенного пользователя runneradmin
           $Password = ConvertTo-SecureString "YourSecurePassword123!" -AsPlainText -Force
           Set-LocalUser -Name "runneradmin" -Password $Password
-          Write-Host "Пароль для пользователя 'runneradmin' успешно изменен."
+          Write-Host "Пароль для аккаунта runneradmin успешно обновлен."
 
-      # 3. Чистая PowerShell-установка Tailscale (без использования экшена)
+      # 3. Скачивание и тихая установка Tailscale без сбоев
       - name: Install and Authenticate Tailscale
         shell: powershell
         run: |
-          Write-Host "Скачивание установщика Tailscale..."
-          Invoke-WebRequest -Uri "https://tailscale.com" -OutFile "tailscale-setup.msi"
+          # Принудительно заставляем .NET использовать TLS 1.2/1.3 для стабильного скачивания пакетов
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
           
-          Write-Host "Запуск тихой установки..."
-          # Флаг -Wait заставляет PowerShell дождаться окончания распаковки файлов, а /qn делает установку скрытой
-          $installProcess = Start-Process msiexec.exe -ArgumentList '/i tailscale-setup.msi /qn /norestart' -Wait -PassThru
+          Write-Host "Скачивание стабильного MSI-установщика Tailscale..."
+          # Загружаем напрямую через стандартный класс .NET (чтобы избежать ошибок Invoke-WebRequest)
+          $url = "https://tailscale.com"
+          $output = "tailscale-setup.msi"
+          (New-Object System.Net.WebClient).DownloadFile($url, $output)
+          
+          # Проверяем физический размер скачанного файла на случай сбоя сети
+          $fileSize = (Get-Item $output).Length
+          Write-Host "Размер скачанного файла: $fileSize байт."
+          if ($fileSize -lt 5MB) {
+              Write-Error "Файл поврежден или скачался некорректно."
+              exit 1
+          }
+          
+          Write-Host "Запуск тихой установки Tailscale..."
+          # Ключ /qn активирует полностью фоновый режим, а -Wait запрещает PowerShell переходить к следующей строке до конца установки
+          $installProcess = Start-Process msiexec.exe -ArgumentList "/i $output /qn /norestart /log install.log" -Wait -PassThru
           
           if ($installProcess.ExitCode -ne 0) {
-              Write-Error "Ошибка установки MSI. Код выхода: $($installProcess.ExitCode)"
+              Write-Error "Установка MSI завершилась ошибкой. Код: $($installProcess.ExitCode)"
+              Get-Content install.log -Tail 20
               exit 1
           }
           
-          # Небольшая пауза, чтобы системная служба Tailscale успела стартовать в ОС
+          # Небольшая пауза, чтобы системная служба Tailscale IPN Service успела зарегистрироваться в ОС
           Start-Sleep -Seconds 5
           
-          # Проверяем, появился ли файл на диске
+          # Проверяем, существует ли теперь исполняемый файл
           $exePath = "C:\Program Files\Tailscale\tailscale.exe"
           if (-not (Test-Path $exePath)) {
-              Write-Error "Файл tailscale.exe не найден по пути $exePath!"
+              Write-Error "Файл tailscale.exe не найден по пути установки: $exePath"
               exit 1
           }
           
-          Write-Host "Подключение к сети Tailscale..."
-          # Авторизация по полному пути с использованием вашего секрета
-          & $exePath up --authkey="${{ secrets.TS_AUTH_KEY }}" --accept-routes
+          Write-Host "Авторизация и подключение к сети Tailscale..."
+          # Передаем ваш секретный ключ. Флаг --ephemeral автоматически удалит этот раннер из вашей админки после выключения сессии.
+          & $exePath up --authkey="${{ secrets.TS_AUTH_KEY }}" --accept-routes --ephemeral
 
-      # 4. Получение IP раннера и удержание сессии активной
+      # 4. Вывод данных для подключения и удержание сессии
       - name: Hold the Runner Session
         shell: powershell
         run: |
@@ -64,12 +80,13 @@ jobs:
           $tsIp = & $exePath ip -4
           
           Write-Host "=========================================================="
-          Write-Host "Tailscale IP: $tsIp"
-          Write-Host "Пользователь для RDP: runneradmin"
-          Write-Host "Пароль для RDP: YourSecurePassword123!"
+          Write-Host "ДАННЫЕ ДЛЯ ПОДКЛЮЧЕНИЯ ПО RDP:"
+          Write-Host "IP-адрес в Tailscale: $tsIp"
+          Write-Host "Пользователь: runneradmin"
+          Write-Host "Пароль: YourSecurePassword123!"
           Write-Host "=========================================================="
-          Write-Host "Раннер готов к работе. Подключайтесь через RDP."
+          Write-Host "Сессия запущена. Раннер будет активен в течение 6 часов."
           Write-Host "=========================================================="
           
-          # Держит раннер активным до 6 часов (21600 секунд)
+          # Держит раннер в активном (живом) состоянии до 6 часов (21600 секунд)
           Start-Sleep -Seconds 21600
