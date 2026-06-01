@@ -59,16 +59,14 @@ jobs:
 
       - name: Install Tailscale
         run: |
-          # Your specified link to the 1.98.4 executable installer
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.98.4.exe"
+          $tsUrl = "https://tailscale.com"
           $installerPath = "$env:TEMP\tailscale-setup.exe"
           
           Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
           
-          # Executes the .exe setup with silent parameters and waits for total extraction
-          Start-Process $installerPath -ArgumentList "/S", "/v/qn" -Wait
+          # ИСПРАВЛЕНИЕ: Ключи изменены на валидные для Inno Setup с флагом принудительного ожидания -Wait
+          Start-Process $installerPath -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
           
-          Start-Sleep -Seconds 5
           Remove-Item $installerPath -Force
 
       - name: Establish Tailscale Connection
