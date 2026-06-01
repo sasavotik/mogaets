@@ -7,28 +7,41 @@ jobs:
   rdp:
     runs-on: windows-latest
     steps:
-      # 1. Check out repository
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 2. Enable Windows RDP
       - name: Enable RDP
         run: |
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
 
-      # 3. Connect to Tailscale
-      - name: Connect to Tailscale
-        uses: tailscale/github-action@v2
-        with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:ci
-
-      # 4. Keep Runner Active
-      - name: Hold the Runner
+      # Manually install and log into Tailscale on Windows
+      - name: Install and Start Tailscale
+        shell: powershell
         run: |
-          Write-Host "Tailscale IP is (Get-TailscaleAddress)"
-          Write-Host "Runner is ready. RDP into the machine using the Tailscale IP."
+          # 1. Download official Tailscale MSI installer
+          Invoke-WebRequest -Uri "https://tailscale.com" -OutFile "tailscale-setup.msi"
+          
+          # 2. Silently install Tailscale
+          Start-Process msiexec.exe -ArgumentList '/i tailscale-setup.msi /quiet /norestart' -Wait
+          
+          # 3. Add Tailscale to the current PowerShell environment path
+          $env:Path += ";C:\Program Files\Tailscale"
+          
+          # 4. Authenticate Tailscale using your secret Auth Key
+          & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="${{ secrets.TS_AUTH_KEY }}" --accept-routes
+
+      - name: Hold the Runner
+        shell: powershell
+        run: |
+          $env:Path += ";C:\Program Files\Tailscale"
+          # Retrieve the assigned Tailscale IP address
+          $tsIp = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
+          Write-Host "=========================================================="
+          Write-Host "Tailscale IP is: $tsIp"
+          Write-Host "Runner is ready. RDP into the machine using this IP."
+          Write-Host "=========================================================="
+          
+          # Keeps the runner alive for up to 6 hours (21600 seconds)
           Start-Sleep -Seconds 21600
