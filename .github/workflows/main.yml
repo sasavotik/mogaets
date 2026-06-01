@@ -7,36 +7,69 @@ jobs:
   rdp:
     runs-on: windows-latest
     steps:
-      # 1. Клонируем репозиторий
+      # 1. Клонируем ваш репозиторий
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 2. Настраиваем и включаем службу Windows Remote Desktop (RDP)
-      - name: Enable RDP
+      # 2. Включаем службу Windows Remote Desktop (RDP) и задаем пароль
+      - name: Enable RDP and Set Password
         shell: powershell
         run: |
+          # Включаем RDP в реестре и брандмауэре Windows
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
+          
+          # Устанавливаем пароль для встроенного пользователя runneradmin
+          # Смените 'YourSecurePassword123!' на свой пароль, если хотите
+          $Password = ConvertTo-SecureString "YourSecurePassword123!" -AsPlainText -Force
+          Set-LocalUser -Name "runneradmin" -Password $Password
+          Write-Host "Пароль для пользователя 'runneradmin' успешно изменен."
 
-      # 3. Подключаемся к вашей сети через официальный экшен Tailscale
-      - name: Connect to Tailscale
-        uses: tailscale/github-action@v2
-        with:
-          authkey: ${{ secrets.TS_AUTH_KEY }}
-
-      # 4. Выводим IP-адрес раннера в сети Tailscale и держим его активным
-      - name: Hold the Runner
+      # 3. Чистая PowerShell-установка Tailscale (без использования экшена)
+      - name: Install and Authenticate Tailscale
         shell: powershell
         run: |
-          # Автоматически находим путь к установленному экшеном tailscale.exe
-          $env:Path += ";C:\Program Files\Tailscale"
-          $tsIp = tailscale ip -4
+          Write-Host "Скачивание установщика Tailscale..."
+          Invoke-WebRequest -Uri "https://tailscale.com" -OutFile "tailscale-setup.msi"
+          
+          Write-Host "Запуск тихой установки..."
+          # Флаг -Wait заставляет PowerShell дождаться окончания распаковки файлов, а /qn делает установку скрытой
+          $installProcess = Start-Process msiexec.exe -ArgumentList '/i tailscale-setup.msi /qn /norestart' -Wait -PassThru
+          
+          if ($installProcess.ExitCode -ne 0) {
+              Write-Error "Ошибка установки MSI. Код выхода: $($installProcess.ExitCode)"
+              exit 1
+          }
+          
+          # Небольшая пауза, чтобы системная служба Tailscale успела стартовать в ОС
+          Start-Sleep -Seconds 5
+          
+          # Проверяем, появился ли файл на диске
+          $exePath = "C:\Program Files\Tailscale\tailscale.exe"
+          if (-not (Test-Path $exePath)) {
+              Write-Error "Файл tailscale.exe не найден по пути $exePath!"
+              exit 1
+          }
+          
+          Write-Host "Подключение к сети Tailscale..."
+          # Авторизация по полному пути с использованием вашего секрета
+          & $exePath up --authkey="${{ secrets.TS_AUTH_KEY }}" --accept-routes
+
+      # 4. Получение IP раннера и удержание сессии активной
+      - name: Hold the Runner Session
+        shell: powershell
+        run: |
+          $exePath = "C:\Program Files\Tailscale\tailscale.exe"
+          $tsIp = & $exePath ip -4
           
           Write-Host "=========================================================="
-          Write-Host "Tailscale IP is: $tsIp"
-          Write-Host "Runner is ready. RDP into the machine using this IP."
+          Write-Host "Tailscale IP: $tsIp"
+          Write-Host "Пользователь для RDP: runneradmin"
+          Write-Host "Пароль для RDP: YourSecurePassword123!"
+          Write-Host "=========================================================="
+          Write-Host "Раннер готов к работе. Подключайтесь через RDP."
           Write-Host "=========================================================="
           
-          # Удерживает раннер активным до 6 часов (21600 секунд)
+          # Держит раннер активным до 6 часов (21600 секунд)
           Start-Sleep -Seconds 21600
