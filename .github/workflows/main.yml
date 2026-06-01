@@ -29,22 +29,10 @@ jobs:
           # (Optional) Restart the Remote Desktop service to ensure changes take effect
           Restart-Service -Name TermService -Force
 
-      - name: Create RDP User with Secure Password
+      - name: Create RDP User with Static Password
         run: |
-          Add-Type -AssemblyName System.Security
-          $charSet = @{
-              Upper   = [char[]](65..90)      # A-Z
-              Lower   = [char[]](97..122)     # a-z
-              Number  = [char[]](48..57)      # 0-9
-              Special = ([char[]](33..47) + [char[]](58..64) +
-                         [char[]](91..96) + [char[]](123..126)) # Special characters
-          }
-          $rawPassword = @()
-          $rawPassword += $charSet.Upper | Get-Random -Count 4
-          $rawPassword += $charSet.Lower | Get-Random -Count 4
-          $rawPassword += $charSet.Number | Get-Random -Count 4
-          $rawPassword += $charSet.Special | Get-Random -Count 4
-          $password = -join ($rawPassword | Sort-Object { Get-Random })
+          # Задаем фиксированный пароль acat1990 по вашему запросу
+          $password = "acat1990"
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
           New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
           Add-LocalGroupMember -Group "Administrators" -Member "RDP"
@@ -61,22 +49,21 @@ jobs:
         run: |
           Write-Host "Установка Tailscale версии 1.98.4 через диспетчер пакетов winget..."
           
-          # Установка конкретной версии напрямую из репозитория Microsoft/Tailscale с полным логированием
+          # Winget сам находит официальный дистрибутив и разворачивает его в систему
           winget install --id Tailscale.Tailscale --version 1.98.4 --exact --silent --accept-source-agreements --accept-package-agreements
           
-          # Явная задержка для завершения регистрации служб Windows
+          # Ожидание инициализации службы Windows
           Start-Sleep -Seconds 5
 
       - name: Establish Tailscale Connection
         run: |
-          # Контролируем, куда установилась утилита
+          # Проверяем точное место установки исполняемого файла
           $exePath = "$env:ProgramFiles\Tailscale\tailscale.exe"
           if (-not (Test-Path $exePath)) {
               Write-Error "Критическая ошибка: Файл не найден по пути $exePath. Установка завершилась неудачей."
               exit 1
           }
           
-          Write-Host "Файл обнаружен. Инициализация подключения..."
           # Bring up Tailscale with the provided auth key and set a unique hostname
           & $exePath up --authkey=${{ secrets.TS_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
           
