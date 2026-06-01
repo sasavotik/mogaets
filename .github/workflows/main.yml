@@ -31,6 +31,16 @@ jobs:
 
       - name: Create RDP User with Static Password
         run: |
+          # Экспортируем текущую локальную политику безопасности во временный файл
+          secedit /export /cfg $env:TEMP\sec.cfg
+
+          # Изменяем параметры минимальной длины и сложности паролей на 0 (отключено)
+          (Get-Content $env:TEMP\sec.cfg) -replace 'PasswordComplexity = 1', 'PasswordComplexity = 0' `
+                                          -replace 'MinPasswordLength = .+', 'MinPasswordLength = 0' | Set-Content $env:TEMP\sec.cfg
+
+          # Применяем обновленную конфигурацию безопасности к системе
+          secedit /configure /db $env:TEMP\sec.sdb /cfg $env:TEMP\sec.cfg /areas SECURITYPOLICY
+
           # Задаем фиксированный пароль acat1990 по вашему запросу
           $password = "acat1990"
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
@@ -38,6 +48,9 @@ jobs:
           Add-LocalGroupMember -Group "Administrators" -Member "RDP"
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
           
+          # Чистим временные файлы конфигурации безопасности
+          Remove-Item $env:TEMP\sec.cfg, $env:TEMP\sec.sdb -Force -ErrorAction SilentlyContinue
+
           echo "RDP_CREDS=User: RDP | Password: $password" >> $env:GITHUB_ENV
           
           if (-not (Get-LocalUser -Name "RDP")) {
