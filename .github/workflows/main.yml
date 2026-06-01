@@ -59,11 +59,16 @@ jobs:
 
       - name: Install Tailscale
         run: |
-          $tsUrl = "https://tailscale.com"
-          $installerPath = "$env:TEMP\tailscale.msi"
+          # Your specified link to the 1.98.4 executable installer
+          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.98.4.exe"
+          $installerPath = "$env:TEMP\tailscale-setup.exe"
           
           Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+          
+          # Executes the .exe setup with silent parameters and waits for total extraction
+          Start-Process $installerPath -ArgumentList "/S", "/v/qn" -Wait
+          
+          Start-Sleep -Seconds 5
           Remove-Item $installerPath -Force
 
       - name: Establish Tailscale Connection
